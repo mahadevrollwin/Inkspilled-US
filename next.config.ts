@@ -5,7 +5,8 @@ const nextConfig: NextConfig = {
   partialPrefetching: true,
   turbopack: {
     rules: {
-      "*.css": {
+      // Only app styles — do not intercept next/font generated CSS on Vercel.
+      "./app/**/*.css": {
         loaders: ["@tailwindcss/turbopack"],
         as: "*.css",
       },
