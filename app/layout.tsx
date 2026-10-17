@@ -60,7 +60,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Suspense fallback={<div className="fixed inset-0 z-30 bg-ink" aria-hidden />}>
           <Site fontFamily={syne.style.fontFamily} />
         </Suspense>
-        {children}
+        <div hidden aria-hidden="true">
+          {children}
+        </div>
       </body>
     </html>
   );
