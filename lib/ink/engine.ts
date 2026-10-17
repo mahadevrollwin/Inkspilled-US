@@ -834,6 +834,33 @@ export class InkEngine {
     return clamp((this.typeRatio() - 0.66) / 0.3);
   }
 
+  /** True while the hero colorful bloom is still spreading; false once it has settled. */
+  private heroPlayReelVisible() {
+    const view = this.view;
+    if (!view || view.route.type !== "home" || !this.loaded || this.flood.state !== "idle") return false;
+    const hs = view.stations[0];
+    if (!hs || (hs.mode !== "heroA" && hs.mode !== "heroB") || !hs.target) return false;
+    const onHero = this.drop.docked === hs && (this.drop.state === "docked" || this.drop.state === "flow");
+    if (!onHero) return false;
+    if (this.drop.state === "flow" || hs.tau <= 0) return true;
+    const last = hs.inks[hs.inks.length - 1];
+    const settle = this.reduced ? 1 : clamp((hs.tau - last.delay - 0.4) / 7);
+    return settle < 1;
+  }
+
+  private syncHeroPlayReel() {
+    const heroPin = document.getElementById("heroPin");
+    const cur = document.getElementById("cur");
+    const show = this.heroPlayReelVisible();
+    if (heroPin) {
+      if (show) heroPin.dataset.cursor = "Play reel";
+      else delete heroPin.dataset.cursor;
+    }
+    if (cur && !show && cur.classList.contains("on") && (cur.textContent || "").toLowerCase() === "play reel") {
+      cur.classList.remove("on");
+    }
+  }
+
   private finishLoader() {
     this.loaded = true;
     document.getElementById("loader")?.classList.add("done");
@@ -884,6 +911,7 @@ export class InkEngine {
       }
       s.amts = s.inks.map((k) => (this.reduced && s.tau > 0 ? s.scrub : spread(s.tau - k.delay, s.creep) * s.scrub));
     }
+    this.syncHeroPlayReel();
     if (this.drop.state === "follow") {
       let best: Station | null = null;
       for (const s of ST) if (s.target && (!best || s.scrub > best.scrub)) best = s;
