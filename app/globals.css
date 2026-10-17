@@ -1,0 +1,157 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #f2f0eb;
+  --ink: #0c0a0b;
+  --muted: #6a6466;
+  --rule: #dcd8d1;
+  --white: #faf8f5;
+  --red: #ee2f27;
+  --green: #78c145;
+  --blue: #0f7dc2;
+  --red-deep: #3a0705;
+  --green-deep: #062710;
+  --blue-deep: #04163a;
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-rule: var(--rule);
+  --color-cream: var(--white);
+  --color-brand-red: var(--red);
+  --color-brand-green: var(--green);
+  --color-brand-blue: var(--blue);
+  --font-sans: var(--font-geist), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, Menlo, monospace;
+  --font-display: var(--font-syne), "Arial Black", system-ui, sans-serif;
+  --font-serif: var(--font-instrument), "Times New Roman", serif;
+  --ease-ink: cubic-bezier(0.7, 0, 0.2, 1);
+  --animate-svc-drift: svc-drift 18s ease-in-out infinite alternate;
+
+  @keyframes svc-drift {
+    from {
+      transform: scale(1.06) translate3d(0, 0, 0);
+    }
+    to {
+      transform: scale(1.14) translate3d(-1.8%, -1%, 0);
+    }
+  }
+}
+
+@utility gutter {
+  padding-left: max(24px, env(safe-area-inset-left, 0px));
+  padding-right: max(24px, env(safe-area-inset-right, 0px));
+}
+
+@utility label {
+  font-family: var(--font-mono), ui-monospace, Menlo, monospace;
+  font-weight: 500;
+  font-size: 11.5px;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+@utility it {
+  font-family: var(--font-serif), "Times New Roman", serif;
+  font-style: italic;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: -0.01em;
+}
+
+@utility site-wrap {
+  width: 100%;
+  max-width: 1480px;
+  margin-inline: auto;
+}
+
+@utility ink-fg {
+  color: color-mix(in srgb, var(--white) calc(var(--cp, 0) * 100%), var(--ink));
+}
+
+@utility hero-fg {
+  color: color-mix(in srgb, var(--white) calc(var(--tp, 0) * 100%), var(--ink));
+}
+
+html {
+  background: var(--paper);
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+html.locked,
+html.locked body {
+  overflow: hidden;
+}
+
+html.flooding #ink {
+  z-index: 20;
+}
+
+html.no-webgl .panel {
+  background: var(--red-deep);
+}
+
+html.no-webgl .foot {
+  background: var(--blue-deep);
+}
+
+html.no-webgl .foot .inner,
+html.no-webgl .panel .cap {
+  opacity: 1;
+}
+
+.switch[hidden] {
+  display: none !important;
+}
+
+#statement .w {
+  opacity: 0.13;
+  transition: opacity 0.25s linear;
+}
+
+.cur {
+  transform: translate(-50%, -50%) scale(0);
+}
+
+.cur.on {
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.loader.done {
+  transform: translateY(-100%);
+}
+
+@keyframes mq {
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes pulse-dot {
+  50% {
+    opacity: 0.2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loader {
+    display: none;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 4px;
+}
