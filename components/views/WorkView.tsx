@@ -41,7 +41,7 @@ export function WorkView({ id }: { id: string }) {
       </section>
       <section className="gutter py-2.5 pb-10">
         <div className="site-wrap">
-          <div id="pagePanel" data-ink={work.ink} data-cursor="Play film" data-reel className="relative grid h-[min(76vh,780px)] content-end p-6 text-cream [--cp:0]">
+          <div id="pagePanel" data-ink={work.ink} data-img={work.image} data-cursor="Play film" data-reel className="relative grid h-[min(76vh,780px)] content-end overflow-hidden rounded-block rounded-tr-none p-6 text-cream [--cp:0]">
             <div className="label relative z-[3] opacity-[var(--cp)]">Hero film · stand-in footage</div>
           </div>
         </div>
@@ -61,10 +61,10 @@ export function WorkView({ id }: { id: string }) {
       <section className="gutter">
         <div className="site-wrap grid grid-cols-1 gap-7 min-[901px]:grid-cols-2">
           {work.frames.map((frame, i) => (
-            <figure key={frame} className={`m-0 grid min-w-0 gap-3 ${i === 0 ? "min-[901px]:col-span-2" : ""}`}>
-              <div data-frame={work.ink} className={`frame w-full max-w-full ${i === 0 ? "aspect-[21/9]" : "aspect-[4/3]"}`} />
+            <figure key={frame.caption} className={`m-0 grid min-w-0 gap-3 ${i === 0 ? "min-[901px]:col-span-2" : ""}`}>
+              <div data-frame={work.ink} data-img={frame.image} className={`frame w-full max-w-full overflow-hidden rounded-block rounded-tr-none ${i === 0 ? "aspect-[21/9]" : "aspect-[4/3]"}`} />
               <figcaption className="label relative z-[3] text-muted">
-                {pad(i + 1)} · {frame}
+                {pad(i + 1)} · {frame.caption}
               </figcaption>
             </figure>
           ))}

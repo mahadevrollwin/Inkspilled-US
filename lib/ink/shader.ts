@@ -5,9 +5,11 @@ uniform vec2 uView; uniform float uDpr, uTime, uScroll, uCount;
 uniform vec4 uRect[MAXR]; uniform vec4 uOrig[MAXR]; uniform vec4 uSt[MAXR]; uniform vec4 uSt2[MAXR];
 uniform vec4 uCore[MAXR]; uniform vec4 uLight[MAXR]; uniform vec4 uMRect[MAXR]; uniform vec4 uPhase[MAXR];
 uniform vec3 uPalA[MAXR]; uniform vec3 uPalB[MAXR];
-uniform vec2 uTexAR; uniform sampler2D uTex0;
+uniform vec2 uTexAR; uniform sampler2D uTex0; uniform float uFade[MAXR];
 uniform vec4 uDrop; uniform vec3 uDropInk; uniform vec3 uTrail[6];
 uniform sampler2D uType; uniform vec4 uTypeP; uniform vec3 uTypeCur; uniform float uVid;
+uniform sampler2D uPhoto; uniform vec4 uAtlas[MAXR];
+uniform float uMorph; uniform float uMask[MAXR];
 
 vec2 hash2(vec2 p){ p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))); return -1.0+2.0*fract(sin(p)*43758.5453123); }
 float hash1(vec2 p){ return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453); }
@@ -27,6 +29,12 @@ vec3 fluid(vec2 uv, float seed, vec3 A, vec3 B, vec3 C){
   col=mix(col, vec3(1.0,0.97,0.94), smoothstep(0.35,0.62,r.x)*0.3);
   return col*(0.6+1.0*f*f);
 }
+vec3 treatImg(vec3 img, vec3 deep, vec3 lit, float mott){
+  float l=dot(img,vec3(0.299,0.587,0.114));
+  vec3 duo=mix(deep*0.85, lit, smoothstep(0.06,0.72,l));
+  duo=mix(duo, vec3(0.98,0.96,0.93), smoothstep(0.74,1.0,l)*0.75);
+  return duo*(0.93+0.1*mott);
+}
 void main(){
   vec2 fc=vec2(gl_FragCoord.x, uView.y*uDpr-gl_FragCoord.y)/uDpr;
   vec2 wp=vec2(fc.x, fc.y+uScroll);
@@ -35,7 +43,7 @@ void main(){
   float mkey=-1.0; vec3 mcache=vec3(0.0);
 
   // ---- spilled-type hero: letters filled with footage that bleed toward the cursor and flood on scroll ----
-  if(uTypeP.y>0.5){
+  if(uTypeP.y>0.004){
     vec2 tuv=fc/uView;
     vec3 tm=texture2D(uType,tuv).rgb;
     float p=uTypeP.x;
@@ -52,6 +60,7 @@ void main(){
     float tf=smoothstep(0.30,0.47,v)*(1.0-ta)*0.5*(0.35+0.65*comb);
     float q=uTypeP.z;
     if(q>0.0){ float Rq=(1.0-q)*length(uView)*0.62; float dd=length(fc-uView*0.5)+n*140.0; float m=1.0-smoothstep(Rq-30.0,Rq+30.0,dd); ta*=m; tf*=m; }
+    ta*=uTypeP.y; tf*=uTypeP.y;
     if(ta+tf>0.003){
       float gx=clamp(fc.x/uView.x,0.0,1.0);
       vec3 RED=vec3(0.933,0.184,0.153), GRN=vec3(0.471,0.757,0.271), BLU=vec3(0.118,0.561,0.839);
@@ -73,8 +82,10 @@ void main(){
     vec4 rc=uRect[i]; vec4 o=uOrig[i]; vec4 st=uSt[i]; vec4 s2=uSt2[i]; vec4 ph4=uPhase[i];
     float R=o.z;
     vec2 rel=fc-o.xy; float len=length(rel); vec2 dir=rel/max(len,0.001);
-    float rad=min(rc.z,rc.w)*ph4.z;
-    float d0=max(len-R, sdBox(fc-(rc.xy+rc.zw*0.5), rc.zw*0.5-rad)-rad);
+    vec2 bp=fc-(rc.xy+rc.zw*0.5);
+    float rad=min(rc.z,rc.w)*abs(ph4.z);
+    if(ph4.z<0.0 && bp.x>0.0 && bp.y<0.0) rad=0.0;   // negative radius: square top-right corner
+    float d0=max(len-R, sdBox(bp, rc.zw*0.5-rad)-rad);
     float sc=clamp(R/360.0,0.04,1.6);
     float lobeAmp=uLight[i].a;
     float feather=s2.x*sc;
@@ -104,19 +115,27 @@ void main(){
     ic=mix(ic, vec3(0.97), spk*0.8);
     float mt=uCore[i].a;
     if(mt>0.5 && o.w>0.001){
-      float mv=smoothstep(band*0.4, band*2.2+30.0*sc, t)*o.w;
+      float fh=uMRect[i].w;
+      float pb=min(band, fh*0.1+4.0);
+      float mv=(mt>2.5?smoothstep(pb*0.25, pb*1.4+min(18.0*sc, fh*0.08), t):smoothstep(band*0.4, band*2.2+30.0*sc, t))*o.w;
       vec3 mc;
       if(ph4.w==mkey){ mc=mcache; }
       else {
-        vec4 mr=uMRect[i]; vec2 uv=(fc-mr.xy)/mr.zw;
-        if(mt>1.5){ float rar=mr.z/mr.w; vec2 s=uv-0.5; if(rar>uTexAR.x) s.y*=uTexAR.x/rar; else s.x*=rar/uTexAR.x; mc=texture2D(uTex0,s+0.5).rgb; }
+        vec4 mr=uMRect[i]; vec2 uv=(fc-mr.xy)/mr.zw; float rar=mr.z/max(mr.w,0.001);
+        if(mt>2.5){ float car=4.0/3.0; vec2 s=uv-0.5; if(rar>car) s.y*=car/rar; else s.x*=rar/car; s=clamp(s+0.5,0.003,0.997);
+          vec4 ar=uAtlas[i]; mc=texture2D(uPhoto, ar.xy+s*ar.zw).rgb; }
+        else if(mt>1.5){ vec2 s=uv-0.5; if(rar>uTexAR.x) s.y*=uTexAR.x/rar; else s.x*=rar/uTexAR.x; mc=texture2D(uTex0,s+0.5).rgb; }
         else mc=fluid(uv*vec2(mr.z/mr.w,1.0), ph4.w, uPalA[i], uPalB[i], uLight[i].rgb);
         mkey=ph4.w; mcache=mc;
       }
+      if(mt>2.5) mc=treatImg(mc, deep, lit, mott);
       ic=mix(ic, mc, mv);
     }
     vec3 fcol=mix(lit, vec3(1.0), 0.18);
     float fa=fr*(1.0-a);
+    float inkOp=uFade[i];
+    a*=inkOp;
+    fa*=inkOp;
     vec4 layer=vec4(ic*a+fcol*fa, a+fa);
     acc=layer+acc*(1.0-layer.a);
   }

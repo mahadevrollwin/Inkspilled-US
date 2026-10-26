@@ -2,6 +2,7 @@ import { HERO_VIDEO } from "@/lib/config";
 import { WORK, type InkName } from "@/lib/data";
 import { applyChrome, chrome, watchChrome } from "@/lib/ink/chrome";
 import { FRAGMENT_SHADER } from "@/lib/ink/shader";
+import { StainLayer, pageInk } from "@/lib/ink/stains";
 import { parseKey, sameView, type Route } from "@/lib/routes";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -51,6 +52,7 @@ type Station = {
   inks: InkSpec[];
   noDraw?: boolean;
   top?: boolean;
+  cell?: number;
   tau: number;
   scrub: number;
   target: boolean;
@@ -70,6 +72,7 @@ type Item = {
   seed: number;
   hov: boolean;
   tag?: boolean;
+  cell?: number;
 };
 
 type Geo = { rect: number[]; mrect: number[]; ox: number; oy: number; Rfull: number; radf: number };
@@ -94,10 +97,15 @@ type Draw = {
   lobe: number;
   phase: number[];
   amt?: number;
+  fade?: number;
+  mask?: boolean;
+  cell?: number;
 };
 
 export type EngineOptions = {
   fontFamily: string;
+  /** Every photo the ink can blend in; packed into one texture. */
+  images: string[];
   onCommit: (route: Route, fromHistory: boolean) => void;
   onOpenReel: () => void;
   onOpenTalk: () => void;
@@ -105,6 +113,11 @@ export type EngineOptions = {
 
 const DROP_R = 12;
 const N = 4;
+// Photos are packed into one texture: ATLAS_COLS per row, 4:3 cells, at most ATLAS_MAX_ROWS rows.
+const ATLAS_COLS = 4;
+const ATLAS_MAX_ROWS = 10;
+const CELL_W = 512;
+const CELL_H = 384;
 
 function compile(g: WebGLRenderingContext, fs: string) {
   const pr = g.createProgram();
@@ -162,13 +175,19 @@ export class InkEngine {
   private U: Record<string, WebGLUniformLocation | null> = {};
   private vtex: WebGLTexture | null = null;
   private ttex: WebGLTexture | null = null;
+  private ptex: WebGLTexture | null = null;
   private videoReady = false;
   private videoAR = 16 / 9;
+  private atlasReady = false;
+  private atlasCanvas: HTMLCanvasElement | null = null;
+  private atlasRows = 1;
+  private cells = new Map<string, number>();
   private typeReady = false;
 
   private thumbGL: WebGLRenderingContext | null = null;
   private thumbProg: WebGLProgram | null = null;
   private thumbCanvas: HTMLCanvasElement | null = null;
+  private stains: StainLayer | null = null;
 
   private vw = 0;
   private vh = 0;
@@ -190,6 +209,7 @@ export class InkEngine {
     pal: "blue" as InkName,
     seed: Math.random() * 40,
     hov: false,
+    cell: -1,
   };
   private flood: {
     state: "idle" | "in" | "out";
@@ -218,8 +238,13 @@ export class InkEngine {
   private trail: { x: number; y: number; r: number }[] = [];
   private trailClock = 0;
   private typeCurZ = 0;
+  private heroMorph = 0;
 
   private A: Record<string, Float32Array> = {};
+  private fade = new Float32Array(N);
+  private mask = new Float32Array(N);
+  private atlas = new Float32Array(N * 4);
+  private radii = new WeakMap<Element, number>();
   private pa = new Float32Array(N * 3);
   private pb = new Float32Array(N * 3);
   private trA = new Float32Array(18);
@@ -254,6 +279,8 @@ export class InkEngine {
     applyChrome();
     this.unwatch = watchChrome();
     this.bindInput(signal);
+    const stainCanvas = document.getElementById("stains");
+    if (stainCanvas instanceof HTMLCanvasElement) this.stains = new StainLayer(stainCanvas, this.reduced);
     this.initGL();
     this.resize();
     this.attach(true);
@@ -329,6 +356,7 @@ export class InkEngine {
   }
 
   attach(resetDrop: boolean) {
+    this.heroMorph = 0;
     this.viewAbort?.abort();
     this.viewAbort = new AbortController();
     const signal = this.viewAbort.signal;
@@ -371,16 +399,24 @@ export class InkEngine {
           mode: "panel",
           creep: 11,
           inks: [{ o: [0.35, 0.4], ink: "red", st: "fibre", delay: 0, seed: 0 }],
+          cell: this.cellOf(about.dataset.img),
         }),
       );
+      document.querySelectorAll<HTMLElement>("#svc li").forEach((li) => {
+        const cell = this.cellOf(li.dataset.img);
+        const it = this.makeItem(li, li, "row", (li.dataset.color || "red") as InkName, { cell });
+        this.hoverize(it, signal);
+        items.push(it);
+      });
       document.querySelectorAll<HTMLElement>(".card").forEach((c) => {
         const th = c.querySelector<HTMLElement>(".thumb");
         if (!th) return;
-        const it = this.makeItem(c, th, "card", (c.dataset.ink || "blue") as InkName, { tag: true });
+        const cell = this.cellOf(c.dataset.img);
+        const it = this.makeItem(c, th, "card", (c.dataset.ink || "blue") as InkName, { tag: true, cell });
         this.hoverize(it, signal);
         items.push(it);
         const canvas = th.querySelector("canvas");
-        if (canvas) this.paintThumb(canvas, it.ink, it.seed);
+        if (canvas) this.paintThumb(canvas, it.ink, it.seed, cell);
       });
       const work = document.getElementById("work");
       const track = document.getElementById("track");
@@ -410,8 +446,18 @@ export class InkEngine {
           });
         }
         const hs = stations[0];
-        const hv = route.variant === "b" ? (1 - this.typeQ()) * smooth(clamp(this.typeP() * 2.2)) : Math.max(...hs.amts);
+        const morph = route.variant === "a" ? this.heroMorph : 0;
+        const coverage = route.variant === "b" ? (1 - this.typeQ()) * smooth(clamp(this.typeP() * 2.2)) : Math.max(...hs.amts);
+        const hv = coverage * (1 - morph);
         heroPin?.style.setProperty("--tp", smooth(clamp((hv - 0.3) / 0.3)).toFixed(3));
+        heroPin?.style.setProperty("--hm", morph.toFixed(3));
+        const veil = document.getElementById("heroVeil");
+        if (veil) veil.style.opacity = smooth(clamp((morph - 0.08) / 0.72)).toFixed(3);
+        const title = document.getElementById("heroTitle");
+        if (title) {
+          title.style.opacity = "1";
+          title.style.color = morph > 0.84 ? "transparent" : "";
+        }
         stations[1].el.style.setProperty("--cp", smooth(clamp((stations[1].amts[0] - 0.5) / 0.25)).toFixed(3));
       };
       if (route.variant === "b") {
@@ -421,6 +467,9 @@ export class InkEngine {
           .then(() => {
             if (this.view?.route.type === "home" && this.view.route.variant === "b") this.buildType();
           });
+      } else {
+        this.typeReady = false;
+        this.prepareHeroType();
       }
     } else {
       const panel = document.getElementById("pagePanel");
@@ -432,6 +481,7 @@ export class InkEngine {
           mode: "panel",
           top: true,
           creep: 12,
+          cell: this.cellOf(panel.dataset.img),
           inks: [
             { o: [0.18, 0.3], ink, st: route.type === "post" ? "bleed" : "fibre", delay: 0, seed: 0 },
             { o: [0.82, 0.8], ink: ink === "blue" ? "red" : "blue", st: "bloom", delay: 0.45, reach: 0.42, seed: 0 },
@@ -439,7 +489,7 @@ export class InkEngine {
         }),
       );
       document.querySelectorAll<HTMLElement>("[data-frame]").forEach((f) => {
-        items.push(this.makeItem(f, f, "visible", (f.dataset.frame || ink) as InkName, { ox: 0.25, oy: 0.3 }));
+        items.push(this.makeItem(f, f, "visible", (f.dataset.frame || ink) as InkName, { ox: 0.25, oy: 0.3, cell: this.cellOf(f.dataset.img) }));
       });
       document.querySelectorAll<HTMLElement>("[data-row]").forEach((a) => {
         const it = this.makeItem(a, a, "row", (a.dataset.row || "blue") as InkName);
@@ -449,11 +499,12 @@ export class InkEngine {
       document.querySelectorAll<HTMLElement>(".rcard").forEach((c) => {
         const th = c.querySelector<HTMLElement>(".thumb");
         if (!th) return;
-        const it = this.makeItem(c, th, "card", (c.dataset.ink || "blue") as InkName, { tag: true });
+        const cell = this.cellOf(c.dataset.img);
+        const it = this.makeItem(c, th, "card", (c.dataset.ink || "blue") as InkName, { tag: true, cell });
         this.hoverize(it, signal);
         items.push(it);
         const canvas = th.querySelector("canvas");
-        if (canvas) this.paintThumb(canvas, it.ink, it.seed);
+        if (canvas) this.paintThumb(canvas, it.ink, it.seed, cell);
       });
       const rb = document.getElementById("readbar");
       const body = document.querySelector<HTMLElement>(".post-body");
@@ -478,6 +529,7 @@ export class InkEngine {
           this.blob.hov = true;
           this.blob.ink = (li.dataset.blob || "blue") as InkName;
           this.blob.pal = (li.dataset.pal || this.blob.ink) as InkName;
+          this.blob.cell = this.cellOf(li.dataset.img) ?? -1;
         },
         { signal },
       );
@@ -488,6 +540,7 @@ export class InkEngine {
     this.blob.hov = false;
     this.blob.amt = 0;
     this.view = { route, stations, items, ...hooks };
+    this.stains?.load(route);
     if (resetDrop && stations[0]) {
       this.foot.tau = 0;
       this.drop.state = "docked";
@@ -519,12 +572,17 @@ export class InkEngine {
     window.addEventListener("resize", () => {
       this.resize();
       if (this.view?.route.type === "home" && this.view.route.variant === "b") this.buildType();
+      else if (this.view?.route.type === "home") this.buildHeroType();
     }, { signal });
     document.addEventListener(
       "click",
       (e) => {
         if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         const target = e.target as Element | null;
+        if (this.view && !target?.closest?.("input,textarea,.switch,dialog,[role=dialog]")) {
+          const src = target?.closest?.("[data-ink],[data-color],[data-blob]") as HTMLElement | null;
+          this.stains?.add(e.clientX, e.clientY, src?.dataset.ink || src?.dataset.color || src?.dataset.blob || pageInk(this.view.route));
+        }
         if (target?.closest?.("[data-talk]")) {
           e.preventDefault();
           this.opts.onOpenTalk();
@@ -585,11 +643,12 @@ export class InkEngine {
     }
     try {
       const prog = compile(gl, FRAGMENT_SHADER);
-      ["uView", "uDpr", "uTime", "uScroll", "uCount", "uRect", "uOrig", "uSt", "uSt2", "uCore", "uLight", "uMRect", "uPhase", "uPalA", "uPalB", "uTexAR", "uTex0", "uDrop", "uDropInk", "uTrail", "uType", "uTypeP", "uTypeCur", "uVid"].forEach((n) => {
+      ["uView", "uDpr", "uTime", "uScroll", "uCount", "uRect", "uOrig", "uSt", "uSt2", "uCore", "uLight", "uMRect", "uPhase", "uFade", "uPalA", "uPalB", "uTexAR", "uTex0", "uDrop", "uDropInk", "uTrail", "uType", "uTypeP", "uTypeCur", "uVid", "uMorph", "uMask", "uPhoto", "uAtlas"].forEach((n) => {
         this.U[n] = gl.getUniformLocation(prog, n);
       });
       gl.uniform1i(this.U.uTex0, 0);
       gl.uniform1i(this.U.uType, 1);
+      gl.uniform1i(this.U.uPhoto, 2);
       const mk = () => {
         const t = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, t);
@@ -600,6 +659,8 @@ export class InkEngine {
       };
       this.vtex = mk();
       this.ttex = mk();
+      this.ptex = mk();
+      this.loadAtlas();
     } catch (err) {
       console.error(err);
       this.gl = null;
@@ -618,7 +679,95 @@ export class InkEngine {
     }
   }
 
-  private paintThumb(canvas: HTMLCanvasElement, inkKey: InkName, seed: number) {
+  private cellOf(url?: string) {
+    return url ? this.cells.get(url) : undefined;
+  }
+
+  private cellUV(c?: number) {
+    if (c == null || c < 0) return [0, 0, 0, 0];
+    return [(c % ATLAS_COLS) / ATLAS_COLS, Math.floor(c / ATLAS_COLS) / this.atlasRows, 1 / ATLAS_COLS, 1 / this.atlasRows];
+  }
+
+  private loadAtlas() {
+    const urls = this.opts.images.slice(0, ATLAS_COLS * ATLAS_MAX_ROWS);
+    if (!urls.length) return;
+    this.atlasRows = Math.ceil(urls.length / ATLAS_COLS);
+    urls.forEach((url, i) => this.cells.set(url, i));
+    const load = (url: string) =>
+      new Promise<HTMLImageElement | null>((resolve) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.decoding = "async";
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = url;
+      });
+    Promise.all(urls.map(load)).then((imgs) => {
+      const gl = this.gl;
+      if (!this.alive || !gl || !this.ptex) return;
+      const canvas = document.createElement("canvas");
+      canvas.width = ATLAS_COLS * CELL_W;
+      canvas.height = this.atlasRows * CELL_H;
+      const x = canvas.getContext("2d");
+      if (!x) return;
+      imgs.forEach((img, i) => {
+        if (!img) {
+          this.cells.delete(urls[i]);
+          return;
+        }
+        const ar = CELL_W / CELL_H;
+        let sw = img.naturalWidth;
+        let sh = img.naturalHeight;
+        if (sw / sh > ar) sw = sh * ar;
+        else sh = sw / ar;
+        x.drawImage(img, (img.naturalWidth - sw) / 2, (img.naturalHeight - sh) / 2, sw, sh, (i % ATLAS_COLS) * CELL_W, Math.floor(i / ATLAS_COLS) * CELL_H, CELL_W, CELL_H);
+      });
+      gl.bindTexture(gl.TEXTURE_2D, this.ptex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, canvas);
+      this.atlasCanvas = canvas;
+      this.atlasReady = true;
+      // Items attached before the atlas finished may have missed their cell.
+      this.view?.items.forEach((it) => {
+        if (it.cell == null) return;
+        const canvas = it.kind === "card" ? it.box.querySelector("canvas") : null;
+        if (canvas) this.paintThumbImg(canvas, it.ink, it.cell);
+      });
+    });
+  }
+
+  private paintThumbImg(canvas: HTMLCanvasElement, inkKey: InkName, cell: number) {
+    const atlas = this.atlasCanvas;
+    const x = canvas.getContext("2d", { willReadFrequently: true });
+    if (!atlas || !x) return;
+    const W = canvas.width;
+    const H = canvas.height;
+    let sw = CELL_W;
+    let sh = CELL_H;
+    if (W / H > CELL_W / CELL_H) sh = (CELL_W * H) / W;
+    else sw = (CELL_H * W) / H;
+    const sx = (cell % ATLAS_COLS) * CELL_W + (CELL_W - sw) / 2;
+    const sy = Math.floor(cell / ATLAS_COLS) * CELL_H + (CELL_H - sh) / 2;
+    x.drawImage(atlas, sx, sy, sw, sh, 0, 0, W, H);
+    const d = x.getImageData(0, 0, W, H);
+    const p = d.data;
+    const deep = INKS[inkKey].core.map((v) => v * 1.4 * 255);
+    const paper = [232, 228, 223];
+    for (let i = 0; i < p.length; i += 4) {
+      const l = (p[i] * 0.299 + p[i + 1] * 0.587 + p[i + 2] * 0.114) / 255;
+      const k = clamp((1 - l) * 1.15 - 0.05);
+      p[i] = paper[0] + (deep[0] - paper[0]) * k;
+      p[i + 1] = paper[1] + (deep[1] - paper[1]) * k;
+      p[i + 2] = paper[2] + (deep[2] - paper[2]) * k;
+    }
+    x.putImageData(d, 0, 0);
+  }
+
+  private paintThumb(canvas: HTMLCanvasElement, inkKey: InkName, seed: number, cell?: number) {
+    if (this.atlasReady && cell != null && cell >= 0) {
+      this.paintThumbImg(canvas, inkKey, cell);
+      return;
+    }
     if (!this.thumbGL) {
       this.thumbCanvas = document.createElement("canvas");
       this.thumbGL = this.thumbCanvas.getContext("webgl", { preserveDrawingBuffer: true });
@@ -653,12 +802,122 @@ export class InkEngine {
     canvas.getContext("2d")?.drawImage(thumbCanvas, 0, 0);
   }
 
+  private prepareHeroType() {
+    const run = () => {
+      if (this.view?.route.type === "home" && this.view.route.variant === "a") this.buildHeroType();
+    };
+    const fonts = document.fonts;
+    const title = document.getElementById("heroTitle");
+    if (!fonts?.load || !title) {
+      run();
+      return;
+    }
+    const loads = [title, title.querySelector("span")].flatMap((el) => {
+      if (!el) return [];
+      const cs = getComputedStyle(el);
+      return [fonts.load(`${cs.fontStyle} ${cs.fontWeight} 120px ${cs.fontFamily}`)];
+    });
+    Promise.all(loads).catch(() => undefined).then(run);
+  }
+
+  private buildHeroType() {
+    const title = document.getElementById("heroTitle");
+    const veil = document.getElementById("heroVeil");
+    const spread = title?.querySelector("span");
+    const lead = title ? [...title.childNodes].find((node): node is Text => node.nodeType === Node.TEXT_NODE && !!node.textContent?.trim()) : undefined;
+    const spreadText = spread?.firstChild;
+    if (!title || !veil || !spread || !lead || !(spreadText instanceof Text)) return;
+    const origin = veil.getBoundingClientRect();
+    if (origin.width < 2 || origin.height < 2) return;
+    const scale = Math.min(window.devicePixelRatio || 1, 2);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(origin.width * scale);
+    canvas.height = Math.round(origin.height * scale);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.fillStyle = "#000";
+    this.paintLine(ctx, lead, title, scale, origin);
+    this.paintLine(ctx, spreadText, spread, scale, origin);
+    const url = canvas.toDataURL("image/png");
+    for (const prefix of ["mask", "-webkit-mask"]) {
+      veil.style.setProperty(`${prefix}-image`, `url("${url}")`);
+      veil.style.setProperty(`${prefix}-size`, "100% 100%");
+      veil.style.setProperty(`${prefix}-repeat`, "no-repeat");
+      veil.style.setProperty(`${prefix}-position`, "0 0");
+    }
+    this.typeReady = true;
+  }
+
+  private paintLine(ctx: CanvasRenderingContext2D, node: Text, el: HTMLElement, scale: number, origin: DOMRect) {
+    const cs = getComputedStyle(el);
+    const raw = node.textContent ?? "";
+    const range = document.createRange();
+    const lines: { text: string; left: number; top: number }[] = [];
+    for (let i = 0; i < raw.length; i++) {
+      const ch = raw[i];
+      if (/\s/.test(ch)) {
+        if (lines.length) lines[lines.length - 1].text += ch;
+        continue;
+      }
+      range.setStart(node, i);
+      range.setEnd(node, i + 1);
+      const rect = range.getBoundingClientRect();
+      if (rect.width < 0.4) continue;
+      const prev = lines[lines.length - 1];
+      if (!prev || Math.abs(rect.top - prev.top) > Math.max(3, rect.height * 0.45)) {
+        lines.push({ text: ch, left: rect.left, top: rect.top });
+      } else prev.text += ch;
+    }
+    if (!lines.length) return;
+    const size = parseFloat(cs.fontSize) * scale;
+    ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${size}px ${cs.fontFamily}`;
+    const tracking = cs.letterSpacing;
+    if ("letterSpacing" in ctx) {
+      const px = tracking && tracking !== "normal" ? parseFloat(tracking) : 0;
+      ctx.letterSpacing = Number.isFinite(px) ? `${px * scale}px` : "0px";
+    }
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    const sample = ctx.measureText("Hg");
+    const ascent = sample.fontBoundingBoxAscent || sample.actualBoundingBoxAscent;
+    for (const line of lines) {
+      let text = line.text.replace(/\s+/g, " ").trim();
+      if (!text) continue;
+      if (cs.textTransform === "uppercase") text = text.toLocaleUpperCase();
+      else if (cs.textTransform === "lowercase") text = text.toLocaleLowerCase();
+      ctx.fillText(text, (line.left - origin.left) * scale, (line.top - origin.top) * scale + ascent);
+    }
+  }
+
   private buildType() {
+    const family = this.opts.fontFamily;
+    this.uploadType((x, _scale, W, H) => {
+      x.textBaseline = "alphabetic";
+      let size = Math.min(W * 0.24, H * 0.33);
+      x.font = `800 ${size}px ${family}`;
+      const fit = Math.max(x.measureText("SPILLED").width, x.measureText("INK").width);
+      if (fit > W * 0.92) {
+        size *= (W * 0.92) / fit;
+        x.font = `800 ${size}px ${family}`;
+      }
+      const lh = size * 0.86;
+      const top = H * 0.5 - lh * 0.95;
+      x.textAlign = "left";
+      x.fillText("INK", W * 0.04, top + lh * 0.82);
+      x.textAlign = "right";
+      x.fillText("SPILLED", W * 0.96, top + lh * 1.78);
+    });
+  }
+
+  private uploadType(draw: (ctx: CanvasRenderingContext2D, scale: number, W: number, H: number) => void) {
     const gl = this.gl;
     if (!gl || !this.ttex) return;
     const W = Math.min(1600, Math.round(this.vw));
     const H = Math.round((W * this.vh) / this.vw);
-    if (W < 2 || H < 2) return;
+    if (W < 2 || H < 2 || this.vw < 2) return;
     const c = document.createElement("canvas");
     c.width = W;
     c.height = H;
@@ -667,21 +926,7 @@ export class InkEngine {
     x.fillStyle = "#000";
     x.fillRect(0, 0, W, H);
     x.fillStyle = "#fff";
-    x.textBaseline = "alphabetic";
-    let size = Math.min(W * 0.24, H * 0.33);
-    const family = this.opts.fontFamily;
-    x.font = `800 ${size}px ${family}`;
-    const fit = Math.max(x.measureText("SPILLED").width, x.measureText("INK").width);
-    if (fit > W * 0.92) {
-      size *= (W * 0.92) / fit;
-      x.font = `800 ${size}px ${family}`;
-    }
-    const lh = size * 0.86;
-    const top = H * 0.5 - lh * 0.95;
-    x.textAlign = "left";
-    x.fillText("INK", W * 0.04, top + lh * 0.82);
-    x.textAlign = "right";
-    x.fillText("SPILLED", W * 0.96, top + lh * 1.78);
+    draw(x, W / this.vw, W, H);
     const blur = (k: number) => {
       const s = document.createElement("canvas");
       s.width = Math.max(2, Math.round(W / k));
@@ -719,7 +964,20 @@ export class InkEngine {
     this.typeReady = true;
   }
 
+  /** Corner radius as a fraction of the short side; negative when the top-right corner is square. */
+  private radFrac(el: Element, w: number, h: number) {
+    let r = this.radii.get(el);
+    if (r == null) {
+      const cs = getComputedStyle(el);
+      const tl = parseFloat(cs.borderTopLeftRadius) || 0;
+      r = (parseFloat(cs.borderTopRightRadius) || 0) < 0.5 && tl > 0 ? -tl : tl;
+      this.radii.set(el, r);
+    }
+    return Math.sign(r) * Math.min(0.5, Math.abs(r) / Math.max(1, Math.min(w, h)));
+  }
+
   private resize = () => {
+    this.radii = new WeakMap();
     this.vw = document.documentElement.clientWidth;
     this.vh = window.innerHeight;
     this.dpr = Math.min(window.devicePixelRatio || 1, this.vw < 900 ? 1.2 : 1.5) * this.quality;
@@ -808,7 +1066,7 @@ export class InkEngine {
       Math.hypot(ox - x, Math.min(y + h, b.bottom) - oy),
       Math.hypot(x + w - ox, Math.min(y + h, b.bottom) - oy),
     );
-    return { rect: [x, y, w, h], mrect: [b.left, b.top, b.width, b.height], ox, oy, Rfull: far + (s.mode === "foot" ? 200 : 110), radf: s.mode === "panel" ? 0.22 : 0 };
+    return { rect: [x, y, w, h], mrect: [b.left, b.top, b.width, b.height], ox, oy, Rfull: far + (s.mode === "foot" ? 200 : 110), radf: s.mode === "panel" ? this.radFrac(s.el, b.width, b.height) : 0 };
   }
 
   private soak(it: { hov: boolean; tau: number; amt: number }, dt: number, creep: number) {
@@ -822,43 +1080,28 @@ export class InkEngine {
   }
 
   private typeRatio() {
-    if (!this.view || this.view.route.type !== "home" || this.view.route.variant !== "b") return 0;
+    if (!this.view || this.view.route.type !== "home") return 0;
+    const variant = this.view.route.variant;
+    if (variant !== "b" && !(variant === "a" && this.heroMorph > 0.65)) return 0;
     const h = document.getElementById("hero");
     if (!h) return 0;
     return clamp(window.scrollY / Math.max(1, h.offsetHeight - this.vh));
+  }
+
+  private updateHeroMorph(dt: number) {
+    const hero = this.view?.stations[0];
+    const homeA = this.view?.route.type === "home" && this.view.route.variant === "a" && hero?.mode === "heroA";
+    if (!homeA || this.reduced || !this.typeReady || this.heroMorph >= 0.999) return;
+    const bloom = hero.inks.findIndex((ink) => ink.st === "bloom");
+    const amt = bloom >= 0 ? hero.amts[bloom] : 0;
+    const done = amt > 0.72 && hero.scrub > 0.92;
+    this.heroMorph = clamp(this.heroMorph + (done ? dt / 1.15 : -dt / 0.45));
   }
   private typeP() {
     return smooth(clamp(this.typeRatio() / 0.62));
   }
   private typeQ() {
     return clamp((this.typeRatio() - 0.66) / 0.3);
-  }
-
-  /** True while the hero colorful bloom is still spreading; false once it has settled. */
-  private heroPlayReelVisible() {
-    const view = this.view;
-    if (!view || view.route.type !== "home" || !this.loaded || this.flood.state !== "idle") return false;
-    const hs = view.stations[0];
-    if (!hs || (hs.mode !== "heroA" && hs.mode !== "heroB") || !hs.target) return false;
-    const onHero = this.drop.docked === hs && (this.drop.state === "docked" || this.drop.state === "flow");
-    if (!onHero) return false;
-    if (this.drop.state === "flow" || hs.tau <= 0) return true;
-    const last = hs.inks[hs.inks.length - 1];
-    const settle = this.reduced ? 1 : clamp((hs.tau - last.delay - 0.4) / 7);
-    return settle < 1;
-  }
-
-  private syncHeroPlayReel() {
-    const heroPin = document.getElementById("heroPin");
-    const cur = document.getElementById("cur");
-    const show = this.heroPlayReelVisible();
-    if (heroPin) {
-      if (show) heroPin.dataset.cursor = "Play reel";
-      else delete heroPin.dataset.cursor;
-    }
-    if (cur && !show && cur.classList.contains("on") && (cur.textContent || "").toLowerCase() === "play reel") {
-      cur.classList.remove("on");
-    }
   }
 
   private finishLoader() {
@@ -911,7 +1154,7 @@ export class InkEngine {
       }
       s.amts = s.inks.map((k) => (this.reduced && s.tau > 0 ? s.scrub : spread(s.tau - k.delay, s.creep) * s.scrub));
     }
-    this.syncHeroPlayReel();
+    this.updateHeroMorph(dt);
     if (this.drop.state === "follow") {
       let best: Station | null = null;
       for (const s of ST) if (s.target && (!best || s.scrub > best.scrub)) best = s;
@@ -952,6 +1195,7 @@ export class InkEngine {
         if (t >= 1) {
           this.drop.state = "docked";
           s.tau = 0;
+          this.stains?.add(g.ox, g.oy, s.inks[0].ink, 1.3);
         }
       }
     }
@@ -1033,6 +1277,7 @@ export class InkEngine {
       }
     }
 
+    this.stains?.draw(now, vw, vh);
     const active = this.view;
     if (!active) {
       this.raf = requestAnimationFrame(this.frame);
@@ -1068,9 +1313,11 @@ export class InkEngine {
           st: STY[k.st],
           ink: INKS[k.ink],
           seed: k.seed,
-          mtype: s.mode === "foot" ? 0 : s.mode === "heroA" && this.videoReady ? 2 : 1,
+          mtype: s.mode === "foot" ? 0 : s.cell != null && this.atlasReady ? 3 : s.mode === "heroA" && this.videoReady ? 2 : 1,
+          cell: s.cell,
           lobe: s.mode === "panel" ? 120 : 140,
           phase: [this.reduced ? 1 : smooth(clamp((s.tau - k.delay - 0.4) / 7)), 1, 0, s.mseed],
+          mask: s.mode === "heroA",
         });
       });
     }
@@ -1082,17 +1329,19 @@ export class InkEngine {
       if (it.kind === "row") {
         const ox = it.ox * vw;
         const oy = r.top + r.height / 2;
+        const photo = it.cell != null && this.atlasReady;
         hov.push({
           amt: it.amt,
           g: { rect: [-40, r.top, vw + 80, r.height], mrect: [0, r.top, vw, r.height], ox, oy, Rfull: 0, radf: 0 },
           R: lerp(6, Math.max(ox, vw - ox) + 120, it.amt),
-          media: 0,
+          media: photo ? smooth(clamp((it.amt - 0.15) / 0.45)) : 0,
           st: STY.row,
           ink: INKS[it.ink],
           seed: it.seed,
-          mtype: 0,
+          mtype: photo ? 3 : 0,
+          cell: it.cell,
           lobe: 10,
-          phase: [smooth(clamp((it.tau - 0.3) / 2.5)), 0.7, 0.08, 0],
+          phase: [smooth(clamp((it.tau - 0.3) / 2.5)), 0.7, 0.08, photo ? it.seed : 0],
           pal: null,
         });
         return;
@@ -1100,17 +1349,20 @@ export class InkEngine {
       const ox = r.left + it.ox * r.width;
       const oy = r.top + it.oy * r.height;
       const far = Math.max(Math.hypot(ox - r.left, oy - r.top), Math.hypot(r.right - ox, oy - r.top), Math.hypot(ox - r.left, r.bottom - oy), Math.hypot(r.right - ox, r.bottom - oy)) + 40;
+      const photo = it.cell != null && this.atlasReady;
       hov.push({
         amt: it.amt,
         g: { rect: [r.left, r.top, r.width, r.height], mrect: [r.left, r.top, r.width, r.height], ox, oy, Rfull: 0, radf: 0 },
         R: lerp(6, far, it.amt),
         media: smooth(clamp((it.amt - 0.2) / 0.5)),
+        fade: photo ? 1 : 0.46,
         st: STY.card,
         ink: INKS[it.ink],
         seed: it.seed,
-        mtype: 1,
+        mtype: photo ? 3 : 1,
+        cell: it.cell,
         lobe: 14,
-        phase: [smooth(clamp((it.tau - 0.3) / 3)), 0.7, 0.05, it.seed],
+        phase: [smooth(clamp((it.tau - 0.3) / 3)), 0.7, this.radFrac(it.box, r.width, r.height), it.seed],
         pal: null,
       });
     });
@@ -1125,7 +1377,8 @@ export class InkEngine {
         st: STY.blob,
         ink: INKS[this.blob.ink],
         seed: this.blob.seed,
-        mtype: 1,
+        mtype: this.atlasReady && this.blob.cell >= 0 ? 3 : 1,
+        cell: this.blob.cell,
         lobe: 30,
         phase: [smooth(clamp((this.blob.tau - 0.3) / 3)), 0.8, 0.45, this.blob.seed + 7],
         pal: INKS[this.blob.pal],
@@ -1153,7 +1406,12 @@ export class InkEngine {
     }
     draw = draw.slice(0, N);
     const UN: Record<string, string> = { rect: "uRect", orig: "uOrig", st: "uSt", st2: "uSt2", core: "uCore", light: "uLight", mrect: "uMRect", phase: "uPhase" };
+    this.fade.fill(1);
+    this.mask.fill(0);
     draw.forEach((r, i) => {
+      this.fade[i] = r.fade ?? 1;
+      this.mask[i] = r.mask ? 1 : 0;
+      this.atlas.set(this.cellUV(r.cell), i * 4);
       const g = r.g;
       const s = r.st;
       const I = r.ink;
@@ -1176,11 +1434,18 @@ export class InkEngine {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.ttex);
 
-    const typeOn = view.route.type === "home" && view.route.variant === "b" && this.typeReady && this.typeQ() < 1;
+    const variant = view.route.type === "home" ? view.route.variant : null;
+    const morph = variant === "a" ? this.heroMorph : 0;
+    const spilled = variant === "b";
+    const typeOn = spilled && this.typeReady && this.typeQ() < 1;
+    const typeAmt = typeOn ? 1 : 0;
     const idle = this.reduced ? 0 : 0.05 * (1 - Math.exp(-this.time / 8));
-    const near = now - this.ptr.moved < 1200 && this.typeRatio() < 0.6;
+    const formed = spilled || morph > 0.72;
+    const near = now - this.ptr.moved < 1200 && (spilled || morph > 0.35) && this.typeRatio() < 0.6;
     this.typeCurZ = lerp(this.typeCurZ, near ? 1 : 0, 1 - Math.exp(-dt * 4));
-    gl.uniform4f(this.U.uTypeP, Math.max(this.typeP(), idle), typeOn ? 1 : 0, this.typeQ(), 0);
+    gl.uniform4f(this.U.uTypeP, formed ? Math.max(this.typeP(), idle) : 0, typeAmt, formed ? this.typeQ() : 0, 0);
+    gl.uniform1f(this.U.uMorph, morph);
+    gl.uniform1fv(this.U.uMask, this.mask);
     gl.uniform3f(this.U.uTypeCur, this.ptr.x, this.ptr.y, this.touch ? 0 : this.typeCurZ);
     gl.uniform1f(this.U.uVid, this.videoReady ? 1 : 0);
 
@@ -1203,10 +1468,14 @@ export class InkEngine {
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.uniform1f(this.U.uCount, draw.length);
+    gl.uniform1fv(this.U.uFade, this.fade);
     for (const k in UN) gl.uniform4fv(this.U[UN[k]], this.A[k]);
     gl.uniform3fv(this.U.uPalA, this.pa);
     gl.uniform3fv(this.U.uPalB, this.pb);
     gl.uniform2f(this.U.uTexAR, this.videoAR, 1);
+    gl.uniform4fv(this.U.uAtlas, this.atlas);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.ptex);
     gl.uniform4f(this.U.uDrop, this.drop.x, this.drop.y, dr, 0);
     gl.uniform3fv(this.U.uDropInk, this.drop.ink);
     gl.uniform3fv(this.U.uTrail, this.trA);

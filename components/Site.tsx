@@ -1,9 +1,14 @@
 "use client";
 
+import { config } from "@fortawesome/fontawesome-svg-core";
+import "@fortawesome/fontawesome-svg-core/styles.css";
+import { faBehance, faInstagram, faLinkedinIn, faYoutube } from "@fortawesome/free-brands-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { usePathname, useRouter } from "next/navigation";
 import { memo, useEffect, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { flushSync } from "react-dom";
 import { ReelsDialog } from "@/components/ReelsDialog";
+import { contentImages, setContent, type Content } from "@/lib/data";
 import { InkEngine } from "@/lib/ink/engine";
 import { applyChrome } from "@/lib/ink/chrome";
 import { parsePath, pathFor, routeKey, sameView, titleFor, type Route } from "@/lib/routes";
@@ -11,6 +16,15 @@ import { HomeView } from "@/components/views/HomeView";
 import { JournalView } from "@/components/views/JournalView";
 import { ServiceView } from "@/components/views/ServiceView";
 import { WorkView } from "@/components/views/WorkView";
+
+config.autoAddCss = false;
+
+const SOCIALS = [
+  { name: "Instagram", icon: faInstagram },
+  { name: "LinkedIn", icon: faLinkedinIn },
+  { name: "Behance", icon: faBehance },
+  { name: "YouTube", icon: faYoutube },
+];
 
 const Loader = memo(function Loader() {
   return (
@@ -55,7 +69,9 @@ function Stage({ route }: { route: Route }) {
   return <HomeView variant={route.variant} />;
 }
 
-export function Site({ fontFamily }: { fontFamily: string }) {
+export function Site({ fontFamily, content }: { fontFamily: string; content: Content }) {
+  setContent(content);
+  const [images] = useState(() => contentImages(content));
   const pathname = usePathname();
   const router = useRouter();
   const routerRef = useRef(router);
@@ -72,6 +88,7 @@ export function Site({ fontFamily }: { fontFamily: string }) {
     const engine = new InkEngine(
       {
         fontFamily,
+        images,
         onCommit(next, fromHistory) {
           flushSync(() => setRoute(next));
           window.scrollTo(0, 0);
@@ -104,7 +121,7 @@ export function Site({ fontFamily }: { fontFamily: string }) {
       engine.destroy();
       if (engineRef.current === engine) engineRef.current = null;
     };
-  }, [fontFamily]);
+  }, [fontFamily, images]);
 
   useEffect(() => {
     const engine = engineRef.current;
@@ -135,6 +152,7 @@ export function Site({ fontFamily }: { fontFamily: string }) {
   return (
     <>
       <Loader />
+      <canvas id="stains" aria-hidden className="pointer-events-none fixed inset-0 z-[1] block h-[100vh] w-full mix-blend-multiply" />
       <canvas id="ink" aria-hidden className="pointer-events-none fixed inset-0 z-[2] block h-[100vh] w-full" />
       <video id="heroVideo" muted loop playsInline preload="auto" aria-hidden className="pointer-events-none fixed top-0 left-0 h-[2px] w-[2px] opacity-0" />
       <Cursor />
@@ -240,18 +258,12 @@ function Footer() {
       ? new Intl.DateTimeFormat("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit" }).format(now)
       : "--:--";
   return (
-    <footer id="contact" className="foot gutter relative grid min-h-[125vh] content-end overflow-hidden pt-[30vh] pb-7 text-cream [--cp:0]">
-      <div className="inner site-wrap relative z-[3] opacity-[var(--cp)]">
-        <div aria-hidden className="font-display mx-[calc(-1*max(24px,env(safe-area-inset-left,0px)))] mb-12 flex text-[clamp(72px,13vw,220px)] leading-[0.9] font-extrabold tracking-[-0.05em] whitespace-nowrap uppercase">
-          {[0, 1].map((copy) => (
-            <div key={copy} className="flex animate-[mq_22s_linear_infinite] gap-[0.35em] pr-[0.35em] motion-reduce:animate-none">
-              <span>Let’s</span>
-              <span className="it text-[1.1em]">spill</span>
-              <span>something</span>
-              <span>—</span>
-            </div>
-          ))}
-        </div>
+    <footer id="contact" className="foot relative grid min-h-[125vh] content-end overflow-hidden pt-[30vh] pr-[max(28px,env(safe-area-inset-right,0px))] pb-[max(28px,10vh)] pl-[max(28px,env(safe-area-inset-left,0px))] text-cream [--cp:0]">
+      <div className="inner relative z-[3] w-full opacity-[var(--cp)]">
+        <p className="font-display m-0 mb-12 text-[clamp(34px,5.6vw,88px)] leading-[0.95] font-extrabold tracking-[-0.045em] text-balance uppercase">
+          Let’s <span className="it text-[1.5em]">spill</span>
+          <span className="block">something</span>
+        </p>
         <h2 className="label mb-[22px] font-medium">Start a project</h2>
         <div className="grid grid-cols-1 gap-11 min-[901px]:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)]">
           <BriefForm idPrefix="f" tone="cream" />
@@ -264,13 +276,13 @@ function Footer() {
             </ul>
             <p className="mt-4 mb-0 text-[14px] text-cream/60">Inkspilled Technologies LLC, Dubai</p>
           </div>
-          <div>
+          <div className="min-[901px]:text-right">
             <h3 className="font-mono m-0 mb-3.5 text-[11.5px] font-medium tracking-[0.14em] text-cream/60 uppercase">Follow</h3>
-            <ul className="m-0 grid list-none gap-2.5 p-0">
-              {["Instagram", "LinkedIn", "Behance", "YouTube"].map((name) => (
+            <ul className="m-0 flex list-none flex-wrap gap-3 p-0 min-[901px]:justify-end">
+              {SOCIALS.map(({ name, icon }) => (
                 <li key={name}>
-                  <a href="#contact" data-goto="contact" className="text-inherit underline-offset-4">
-                    {name}
+                  <a href="#contact" data-goto="contact" aria-label={name} title={name} className="grid h-12 w-12 place-items-center rounded-full border border-cream/35 text-[20px] text-inherit transition-colors duration-300 hover:border-cream hover:bg-cream hover:text-ink">
+                    <FontAwesomeIcon icon={icon} className="h-5 w-5" />
                   </a>
                 </li>
               ))}

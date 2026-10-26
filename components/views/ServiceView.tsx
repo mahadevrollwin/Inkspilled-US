@@ -27,7 +27,7 @@ export function ServiceView({ id }: { id: string }) {
       </section>
       <section className="gutter py-2.5 pb-10">
         <div className="site-wrap">
-          <div id="pagePanel" data-ink={service.ink} className="relative grid h-[min(56vh,560px)] content-end p-6 text-cream [--cp:0]">
+          <div id="pagePanel" data-ink={service.ink} data-img={service.image} className="relative grid h-[min(56vh,560px)] content-end overflow-hidden rounded-block rounded-tr-none p-6 text-cream [--cp:0]">
             <div className="label relative z-[3] opacity-[var(--cp)]">{service.desc}</div>
           </div>
         </div>
@@ -78,9 +78,9 @@ export function ServiceView({ id }: { id: string }) {
           <div className="label relative z-[3]">Related work</div>
           <div className="mt-5 grid grid-cols-1 gap-7 min-[901px]:grid-cols-2">
             {related.map((work) => (
-              <article key={work.id} className="rcard grid min-w-0 cursor-none gap-3.5 max-[900px]:cursor-auto" data-go={`work-${work.id}`} data-ink={work.ink} data-cursor="View case" tabIndex={0} role="link">
+              <article key={work.id} className="rcard grid min-w-0 cursor-none gap-3.5 max-[900px]:cursor-auto" data-go={`work-${work.id}`} data-ink={work.ink} data-img={work.image} data-cursor="View case" tabIndex={0} role="link">
                 <a href={`/work/${work.id}`} tabIndex={-1} className="contents text-inherit no-underline">
-                  <div className="thumb relative z-[1] aspect-[16/10] w-full">
+                  <div className="thumb relative z-[1] aspect-[16/10] w-full overflow-hidden rounded-block rounded-tr-none">
                     <canvas width={640} height={400} className="absolute inset-0 block h-full w-full" />
                   </div>
                   <div className="relative z-[3]">

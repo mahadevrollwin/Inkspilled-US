@@ -12,6 +12,7 @@
   --red-deep: #3a0705;
   --green-deep: #062710;
   --blue-deep: #04163a;
+  --block-r: clamp(18px, 2.4vw, 36px);
   color-scheme: light;
 }
 
@@ -29,16 +30,10 @@
   --font-display: var(--font-syne), "Arial Black", system-ui, sans-serif;
   --font-serif: var(--font-instrument), "Times New Roman", serif;
   --ease-ink: cubic-bezier(0.7, 0, 0.2, 1);
-  --animate-svc-drift: svc-drift 18s ease-in-out infinite alternate;
+}
 
-  @keyframes svc-drift {
-    from {
-      transform: scale(1.06) translate3d(0, 0, 0);
-    }
-    to {
-      transform: scale(1.14) translate3d(-1.8%, -1%, 0);
-    }
-  }
+@utility rounded-block {
+  border-radius: var(--block-r);
 }
 
 @utility gutter {
@@ -133,12 +128,6 @@ html.no-webgl .panel .cap {
   transform: translateY(-100%);
 }
 
-@keyframes mq {
-  to {
-    transform: translateX(-100%);
-  }
-}
-
 @keyframes pulse-dot {
   50% {
     opacity: 0.2;
@@ -151,7 +140,7 @@ html.no-webgl .panel .cap {
   }
 }
 
-:focus-visible {
+:focus-visible:not(input, textarea) {
   outline: 2px solid currentColor;
   outline-offset: 4px;
 }

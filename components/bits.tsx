@@ -30,6 +30,7 @@ export function PostLink({ post }: { post: PostItem }) {
         href={`/journal/${post.id}`}
         data-blob={post.ink}
         data-pal={post.pal}
+        data-img={post.image}
         data-cursor="Read"
         data-go={`journal-${post.id}`}
         className="text-ink grid cursor-none grid-cols-1 items-baseline gap-6 py-[26px] no-underline max-[900px]:cursor-auto min-[901px]:grid-cols-[7em_minmax(0,1fr)_auto]"

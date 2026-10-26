@@ -1,34 +1,47 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono, Instrument_Serif, Syne } from "next/font/google";
+import localFont from "next/font/local";
 import { Suspense } from "react";
 import { Site } from "@/components/Site";
+import { getContent } from "@/lib/sanity";
 import "./globals.css";
 
-const syne = Syne({
-  subsets: ["latin"],
-  weight: ["500", "600", "700", "800"],
+// Self-hosted latin subsets. next/font/google fails on Next 16.4.2 when Google
+// returns extensionless /l/font?kit= URLs (the query is split on "&").
+const syne = localFont({
+  src: "./fonts/syne-latin.woff2",
+  weight: "500 800",
   variable: "--font-syne",
   display: "swap",
 });
 
-const instrument = Instrument_Serif({
-  subsets: ["latin"],
-  weight: "400",
-  style: ["normal", "italic"],
+const instrument = localFont({
+  src: [
+    {
+      path: "./fonts/instrument-serif-latin.woff2",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "./fonts/instrument-serif-italic-latin.woff2",
+      weight: "400",
+      style: "italic",
+    },
+  ],
   variable: "--font-instrument",
   display: "swap",
+  adjustFontFallback: "Times New Roman",
 });
 
-const geist = Geist({
-  subsets: ["latin"],
-  weight: ["400", "500"],
+const geist = localFont({
+  src: "./fonts/geist-latin.woff2",
+  weight: "400 500",
   variable: "--font-geist",
   display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500"],
+const geistMono = localFont({
+  src: "./fonts/geist-mono-latin.woff2",
+  weight: "400 500",
   variable: "--font-geist-mono",
   display: "swap",
 });
@@ -48,6 +61,11 @@ export const viewport: Viewport = {
   colorScheme: "light",
 };
 
+async function SiteWithContent() {
+  const content = await getContent();
+  return <Site fontFamily={syne.style.fontFamily} content={content} />;
+}
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${syne.variable} ${instrument.variable} ${geist.variable} ${geistMono.variable}`} suppressHydrationWarning>
@@ -58,11 +76,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           }}
         />
         <Suspense fallback={<div className="fixed inset-0 z-30 bg-ink" aria-hidden />}>
-          <Site fontFamily={syne.style.fontFamily} />
+          <SiteWithContent />
         </Suspense>
-        <div hidden aria-hidden="true">
-          {children}
-        </div>
+        {children}
       </body>
     </html>
   );

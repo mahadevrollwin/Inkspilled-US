@@ -1,7 +1,10 @@
 export type InkName = "red" | "green" | "blue";
 
+export type WorkFrame = { caption: string; image: string };
+
 export type WorkItem = {
   id: string;
+  image: string;
   t: string;
   k: string;
   ink: InkName;
@@ -11,7 +14,7 @@ export type WorkItem = {
   brief: string;
   idea: string;
   made: string[];
-  frames: string[];
+  frames: WorkFrame[];
 };
 
 export type ServiceItem = {
@@ -27,7 +30,7 @@ export type ServiceItem = {
   related: string[];
 };
 
-export type PostBlock = ["p" | "h" | "q" | "fig", string];
+export type PostBlock = ["p" | "h" | "q", string] | ["fig", string, string];
 
 export type PostItem = {
   id: string;
@@ -37,12 +40,25 @@ export type PostItem = {
   read: number;
   ink: InkName;
   pal: InkName;
+  image: string;
   body: PostBlock[];
 };
 
-export const WORK: WorkItem[] = [
+export type Content = {
+  work: WorkItem[];
+  services: ServiceItem[];
+  posts: PostItem[];
+  process: [string, string][];
+  aboutImage: string;
+};
+
+/** Stand-in stills, used until Sanity has content. */
+const cell = (n: number) => `/ink/cells/${n}.jpg`;
+
+const DEFAULT_WORK: WorkItem[] = [
   {
     id: "launch",
+    image: cell(0),
     t: "Product launch film",
     k: "Brand film",
     ink: "red",
@@ -59,10 +75,11 @@ export const WORK: WorkItem[] = [
       "Launch-day social kit in Arabic and English",
       "Out-of-home motion posters",
     ],
-    frames: ["Opening sketch sequence", "The single-take move", "Street finale"],
+    frames: [{ caption: "Opening sketch sequence", image: cell(6) }, { caption: "The single-take move", image: cell(0) }, { caption: "Street finale", image: cell(8) }],
   },
   {
     id: "ramadan",
+    image: cell(1),
     t: "Ramadan campaign",
     k: "Ads & social",
     ink: "green",
@@ -74,10 +91,11 @@ export const WORK: WorkItem[] = [
     idea:
       "A lantern that fills with a little more ink each evening, counting down to Eid across TV, social and in-store screens.",
     made: ["30-second TV spot", "30 nightly reels", "In-store screen loops", "Eid finale film"],
-    frames: ["Night one lantern", "Night fifteen lantern", "The Eid reveal"],
+    frames: [{ caption: "Night one lantern", image: cell(1) }, { caption: "Night fifteen lantern", image: cell(10) }, { caption: "The Eid reveal", image: cell(9) }],
   },
   {
     id: "rebrand",
+    image: cell(2),
     t: "Restaurant rebrand",
     k: "Identity",
     ink: "blue",
@@ -88,10 +106,11 @@ export const WORK: WorkItem[] = [
       "A family restaurant chain had outgrown its twenty-year-old logo and needed an identity that worked on screens as well as on the menu.",
     idea: "A mark drawn from the steam rising off the signature dish, built to move from day one.",
     made: ["Logo and animated logo", "Type and colour system", "Menus and packaging", "Digital and street signage"],
-    frames: ["Steam mark studies", "Animated logo", "Menu system"],
+    frames: [{ caption: "Steam mark studies", image: cell(2) }, { caption: "Animated logo", image: cell(7) }, { caption: "Menu system", image: cell(9) }],
   },
   {
     id: "fashion",
+    image: cell(3),
     t: "Fashion week reels",
     k: "Social",
     ink: "red",
@@ -101,10 +120,11 @@ export const WORK: WorkItem[] = [
     brief: "A designer label needed same-day content from four runway shows, posted before the after-party ended.",
     idea: "Shoot vertical, cut on the beat of the show music, and publish within hours from an on-site edit suite.",
     made: ["40 reels in 4 days", "Runway recap film", "Press reel", "Behind-the-scenes stories"],
-    frames: ["Backstage", "On the runway", "The recap edit"],
+    frames: [{ caption: "Backstage", image: cell(3) }, { caption: "On the runway", image: cell(5) }, { caption: "The recap edit", image: cell(11) }],
   },
   {
     id: "waterfront",
+    image: cell(4),
     t: "Waterfront residences",
     k: "Brand film",
     ink: "blue",
@@ -114,16 +134,16 @@ export const WORK: WorkItem[] = [
     brief: "A developer was selling off-plan homes that did not exist yet and needed buyers to picture living there.",
     idea: "Blend real drone footage of the coastline with CGI so buyers see the view from their own balcony.",
     made: ["Sales film", "Sales-centre screen loop", "Digital ad set", "Broker presentation film"],
-    frames: ["Coastline aerial", "The balcony view in CGI", "Sales-centre loop"],
+    frames: [{ caption: "Coastline aerial", image: cell(4) }, { caption: "The balcony view in CGI", image: cell(8) }, { caption: "Sales-centre loop", image: cell(10) }],
   },
 ];
 
-export const SERVICES: ServiceItem[] = [
+const DEFAULT_SERVICES: ServiceItem[] = [
   {
     id: "ads",
     name: "Ads",
     ink: "red",
-    image: "/services/ads.jpg",
+    image: cell(5),
     desc: "Spots cut for every screen and every second.",
     tags: "TV · Digital · OOH",
     intro:
@@ -143,7 +163,7 @@ export const SERVICES: ServiceItem[] = [
     id: "films",
     name: "Brand films",
     ink: "green",
-    image: "/services/films.jpg",
+    image: cell(0),
     desc: "Launches, manifestos and founder stories.",
     tags: "Direction · Shoot · Edit",
     intro:
@@ -163,7 +183,7 @@ export const SERVICES: ServiceItem[] = [
     id: "identity",
     name: "Identity",
     ink: "blue",
-    image: "/services/identity.jpg",
+    image: cell(6),
     desc: "Logos and systems designed to animate.",
     tags: "Logo · Type · Motion",
     intro:
@@ -183,7 +203,7 @@ export const SERVICES: ServiceItem[] = [
     id: "social",
     name: "Social",
     ink: "red",
-    image: "/services/social.jpg",
+    image: cell(3),
     desc: "Monthly content that keeps the brand alive.",
     tags: "Reels · Community",
     intro:
@@ -203,7 +223,7 @@ export const SERVICES: ServiceItem[] = [
     id: "editing",
     name: "Editing",
     ink: "green",
-    image: "/services/editing.jpg",
+    image: cell(7),
     desc: "Edit, grade, sound and motion graphics.",
     tags: "Post-production",
     intro:
@@ -221,7 +241,7 @@ export const SERVICES: ServiceItem[] = [
   },
 ];
 
-export const PROCESS: [string, string][] = [
+const DEFAULT_PROCESS: [string, string][] = [
   ["Brief", "We agree the goal, the audience and where the work will run."],
   ["Treatment", "A written and visual plan, approved before anything is shot."],
   ["Production", "Casting, locations, crew and the shoot itself."],
@@ -229,11 +249,12 @@ export const PROCESS: [string, string][] = [
   ["Delivery", "Masters and every version, named and ready to publish."],
 ];
 
-export const POSTS: PostItem[] = [
+const DEFAULT_POSTS: PostItem[] = [
   {
     id: "identity",
     title: "Why motion should lead your brand identity",
     cat: "Identity",
+    image: cell(6),
     date: "Oct 2026",
     read: 6,
     ink: "blue",
@@ -247,7 +268,7 @@ export const POSTS: PostItem[] = [
       ["q", "If the identity only works when it holds still, it is not working where it matters."],
       ["h", "Test it moving"],
       ["p", "Before we present a logo, we put it in motion at the real sizes it will live at: a 6-second bumper, a vertical story, a loading icon. Small problems show up immediately. Thin strokes flicker, details vanish, and spacing that looked generous in a PDF feels cramped at speed."],
-      ["fig", "Logo studies tested as a 6-second bumper"],
+      ["fig", "Logo studies tested as a 6-second bumper", cell(10)],
       ["h", "What you get"],
       ["p", "A motion-led identity ships with more than a logo file. It includes animated versions of the mark, timing rules, transitions and templates your team can use. The result is a brand that feels the same in a TV spot, a reel and on the shop sign."],
     ],
@@ -256,6 +277,7 @@ export const POSTS: PostItem[] = [
     id: "oneday",
     title: "Shooting for Reels, Shorts and TikTok in one day",
     cat: "Production",
+    image: cell(3),
     date: "Sep 2026",
     read: 5,
     ink: "red",
@@ -269,7 +291,7 @@ export const POSTS: PostItem[] = [
       ["q", "Shoot hooks in threes. The first second decides whether anyone sees the rest."],
       ["h", "Capture the first second three ways"],
       ["p", "The opening of a short video decides whether people keep watching. We film at least three different openings for every idea, such as a question, a close-up and a movement, so the edit team can test which one holds attention."],
-      ["fig", "One setup, four pieces of content"],
+      ["fig", "One setup, four pieces of content", cell(7)],
       ["h", "Edit the same day"],
       ["p", "An on-site editor starts assembling while the shoot continues. By the end of the day the client has rough cuts of the first posts, and any missing shots can be picked up before the set is struck."],
     ],
@@ -278,6 +300,7 @@ export const POSTS: PostItem[] = [
     id: "bilingual",
     title: "Designing bilingual Arabic and English motion type",
     cat: "Typography",
+    image: cell(1),
     date: "Aug 2026",
     read: 7,
     ink: "green",
@@ -291,7 +314,7 @@ export const POSTS: PostItem[] = [
       ["q", "Neither language should look like a translation of the other."],
       ["h", "Keep the joins intact"],
       ["p", "Arabic letters connect to each other, and many animation tricks break those connections. Animating letter by letter or adding letter spacing splits words apart and makes them hard to read. We animate whole words, or use masks that reveal connected strokes together."],
-      ["fig", "Matched reveal directions for Arabic and English"],
+      ["fig", "Matched reveal directions for Arabic and English", cell(5)],
       ["h", "Plan the layout for both"],
       ["p", "Arabic text often needs more vertical space and less horizontal space than English. We design layouts that hold either script comfortably, rather than squeezing Arabic into a box that was drawn for English."],
     ],
@@ -300,6 +323,7 @@ export const POSTS: PostItem[] = [
     id: "firstsecond",
     title: "What a 15-second ad needs in its first second",
     cat: "Ads",
+    image: cell(5),
     date: "Jul 2026",
     read: 4,
     ink: "red",
@@ -313,12 +337,46 @@ export const POSTS: PostItem[] = [
       ["q", "The end card is the part of the ad that the fewest people see."],
       ["h", "Design for sound off"],
       ["p", "Many people watch with the sound off. The first second has to make sense without audio, so we use clear visuals and large on-screen text rather than relying on a voiceover to set the scene."],
-      ["fig", "Three openings tested for the same 15-second spot"],
+      ["fig", "Three openings tested for the same 15-second spot", cell(9)],
       ["h", "Test more than one opening"],
       ["p", "We cut every ad with several different first seconds and let the platform data choose. The rest of the ad can stay the same; small changes at the start often make the biggest difference."],
     ],
   },
 ];
+
+export const DEFAULT_CONTENT: Content = {
+  work: DEFAULT_WORK,
+  services: DEFAULT_SERVICES,
+  posts: DEFAULT_POSTS,
+  process: DEFAULT_PROCESS,
+  aboutImage: cell(3),
+};
+
+// Live bindings: setContent swaps in the Sanity content before anything renders.
+export let WORK = DEFAULT_CONTENT.work;
+export let SERVICES = DEFAULT_CONTENT.services;
+export let POSTS = DEFAULT_CONTENT.posts;
+export let PROCESS = DEFAULT_CONTENT.process;
+export let ABOUT_IMAGE = DEFAULT_CONTENT.aboutImage;
+
+export function setContent(content: Content) {
+  WORK = content.work;
+  SERVICES = content.services;
+  POSTS = content.posts;
+  PROCESS = content.process;
+  ABOUT_IMAGE = content.aboutImage;
+}
+
+/** Every image the ink engine may need, in a stable order. */
+export function contentImages(content: Content) {
+  const urls = [
+    content.aboutImage,
+    ...content.work.flatMap((w) => [w.image, ...w.frames.map((f) => f.image)]),
+    ...content.services.map((s) => s.image),
+    ...content.posts.flatMap((p) => [p.image, ...p.body.flatMap((b) => (b[0] === "fig" ? [b[2]] : []))]),
+  ];
+  return [...new Set(urls.filter(Boolean))];
+}
 
 export const pad = (n: number) => String(n).padStart(2, "0");
 

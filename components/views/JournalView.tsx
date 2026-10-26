@@ -24,25 +24,26 @@ export function JournalView({ id }: { id: string }) {
       </section>
       <section className="gutter py-2.5 pb-10">
         <div className="site-wrap">
-          <div id="pagePanel" data-ink={post.ink} className="relative grid h-[min(56vh,560px)] content-end p-6 [--cp:0]" />
+          <div id="pagePanel" data-ink={post.ink} data-img={post.image} className="relative grid h-[min(56vh,560px)] content-end overflow-hidden rounded-block rounded-tr-none p-6 [--cp:0]" />
         </div>
       </section>
       <article className="post-body gutter relative z-[3] py-[6vh] pb-[4vh]" style={tone}>
         <div className="mx-auto w-full max-w-[780px]">
-          {post.body.map(([kind, value], i) => {
+          {post.body.map((block, i) => {
+            const [kind, value] = block;
             if (kind === "p") return <p key={i} className="mb-[1.2em] text-[19px] leading-[1.75] text-[#2a2628]">{value}</p>;
             if (kind === "h") return <h2 key={i} className="font-display mt-[1.8em] mb-[0.6em] text-[clamp(24px,2.2vw,32px)] leading-[1.1] font-bold tracking-[-0.02em] uppercase">{value}</h2>;
             if (kind === "q") return <blockquote key={i} className="font-serif my-[1.6em] text-[clamp(30px,3.4vw,50px)] leading-[1.12] text-[var(--c)] italic text-balance">{value}</blockquote>;
             return (
               <figure key={i} className="my-[2em] grid gap-3">
-                <div data-frame={post.ink} className="frame aspect-video w-full" />
+                <div data-frame={post.ink} data-img={block[2]} className="frame aspect-video w-full overflow-hidden rounded-block rounded-tr-none" />
                 <figcaption className="label text-muted">{value}</figcaption>
               </figure>
             );
           })}
         </div>
       </article>
-      <section className="gutter pt-[8vh] pb-[14vh]">
+      <section className="gutter relative z-[3] pt-[8vh] pb-[14vh]">
         <div className="mx-auto w-full max-w-[780px]">
           <div className="label relative z-[3]">Keep reading</div>
           <ul className="m-0 list-none p-0">

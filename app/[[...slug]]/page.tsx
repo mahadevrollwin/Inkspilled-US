@@ -1,16 +1,20 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { connection } from "next/server";
+import { setContent } from "@/lib/data";
 import { descriptionFor, parseSlug, staticParams, titleFor } from "@/lib/routes";
+import { getContent } from "@/lib/sanity";
 
 type Params = { slug?: string[] };
 
-export function generateStaticParams() {
+export async function generateStaticParams() {
+  setContent(await getContent());
   return staticParams();
 }
 
 export async function generateMetadata({ params }: { params: Promise<Params> }): Promise<Metadata> {
-  const { slug } = await params;
+  const [{ slug }, content] = await Promise.all([params, getContent()]);
+  setContent(content);
   const route = parseSlug(slug);
   return {
     title: titleFor(route),
